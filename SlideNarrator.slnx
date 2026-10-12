@@ -1,0 +1,5 @@
+<Solution>
+  <Project Path="SlideNarrator.API/SlideNarrator.API.csproj" />
+  <Project Path="SlideNarrator.BLL/SlideNarrator.BLL.csproj" />
+  <Project Path="SlideNarrator.DAL/SlideNarrator.DAL.csproj" />
+</Solution>

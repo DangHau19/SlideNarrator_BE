@@ -5,13 +5,12 @@ namespace SlideNarrator.DAL.Data;
 
 /// <summary>
 /// Giúp lệnh `dotnet ef migrations add ...` chạy được khi chưa có project API,
-/// đồng thời là nơi duy nhất quyết định chuỗi kết nối mặc định cho cả nhóm.
+/// đồng thời là nơi quyết định chuỗi kết nối mặc định cho cả nhóm.
 /// </summary>
 public class DesignTimeDbContextFactory : IDesignTimeDbContextFactory<AppDbContext>
 {
-    /// <summary>Mặc định dùng SQL Server LocalDB (có sẵn khi cài Visual Studio).</summary>
-    public const string DefaultConnection =
-        "Server=(localdb)\\MSSQLLocalDB;Database=SlideNarratorDb;Trusted_Connection=True;TrustServerCertificate=True";
+    /// <summary>Mặc định dùng MySQL (XAMPP / MariaDB cổng 3306).</summary>
+    public const string DefaultConnection = "Server=localhost;Port=3306;Database=slidenarratordb;User=root;Password=;";
 
     /// <summary>
     /// Thứ tự ưu tiên: biến môi trường ConnectionStrings__Default,
@@ -24,9 +23,11 @@ public class DesignTimeDbContextFactory : IDesignTimeDbContextFactory<AppDbConte
 
     public AppDbContext CreateDbContext(string[] args)
     {
+        var connStr = ResolveConnection();
         var options = new DbContextOptionsBuilder<AppDbContext>()
-            .UseSqlServer(ResolveConnection())
+            .UseMySql(connStr, ServerVersion.AutoDetect(connStr))
             .Options;
+
         return new AppDbContext(options);
     }
 }

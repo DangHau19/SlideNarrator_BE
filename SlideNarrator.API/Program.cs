@@ -5,37 +5,49 @@ using SlideNarrator.DAL.Repositories;
 
 var builder = WebApplication.CreateBuilder(args);
 
-
+// 1. Đăng ký HttpClient và Service TTS
 builder.Services.AddHttpClient<ITtsService, TtsService>();
 
-var connectionString = builder.Configuration.GetConnectionString("Default")
+// 2. Lấy chuỗi kết nối (kiểm tra key "DefaultConnection" hoặc "Default" trong appsettings.json)
+var connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
+                       ?? builder.Configuration.GetConnectionString("Default")
                        ?? DesignTimeDbContextFactory.DefaultConnection;
-builder.Services.AddDbContext<AppDbContext>(o => o.UseSqlServer(connectionString));
-builder.Services.AddScoped<IUnitOfWork, UnitOfWork>();
 
+// 3. ĐĂNG KÝ DBCONTEXT SỬ DỤNG MYSQL
+builder.Services.AddDbContext<AppDbContext>(options =>
+    options.UseMySql(connectionString, ServerVersion.AutoDetect(connectionString)));
+
+// 4. Đăng ký các tầng Repositories & Services của nhóm
+builder.Services.AddScoped<IUnitOfWork, UnitOfWork>();
 builder.Services.AddScoped<IProjectService, ProjectService>();
 
 builder.Services.AddControllers();
-// Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
-builder.Services.AddOpenApi();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
 var app = builder.Build();
 
+// 5. Cấu hình môi trường Development & Tự động chạy Migration
 if (app.Environment.IsDevelopment())
 {
-    app.MapOpenApi();
     using var scope = app.Services.CreateScope();
-    scope.ServiceProvider.GetRequiredService<AppDbContext>().Database.Migrate();
+    try
+    {
+        scope.ServiceProvider.GetRequiredService<AppDbContext>().Database.Migrate();
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"[Lỗi Migration/Kết nối MySQL]: {ex.Message}");
+    }
 }
 
-app.UseHttpsRedirection();
+// 6. Comment dòng này lại để tránh lỗi chuyển hướng khi chạy http://localhost:5000
+// app.UseHttpsRedirection();
+
 app.UseSwagger();
 app.UseSwaggerUI();
 
 app.UseAuthorization();
-
 app.MapControllers();
 
 app.Run();

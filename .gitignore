@@ -480,3 +480,5 @@ $RECYCLE.BIN/
 
 # Vim temporary swap files
 *.swp
+SlideNarrator.API/OutputAudio/
+SlideNarrator.API/Storage/

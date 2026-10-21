@@ -1,0 +1,71 @@
+/* SlideNarrator – giao diện web nhẹ (Bootstrap 5 + chút CSS riêng) */
+
+.dropzone {
+    border: 2px dashed #9bb4e8;
+    border-radius: .75rem;
+    padding: 1.5rem 1rem;
+    background: #f5f8ff;
+    cursor: pointer;
+    transition: background .15s, border-color .15s;
+}
+.dropzone:hover,
+.dropzone:focus,
+.dropzone.dragover {
+    background: #e7efff;
+    border-color: #0d6efd;
+    outline: none;
+}
+
+.slide-thumb {
+    width: 160px;
+    height: 100px;
+    object-fit: cover;
+    border-radius: .5rem;
+    border: 1px solid #dee2e6;
+    background: #f8f9fa;
+}
+.slide-thumb-placeholder {
+    width: 160px;
+    height: 100px;
+    border-radius: .5rem;
+    border: 1px dashed #ced4da;
+    background: #f8f9fa;
+    color: #6c757d;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    font-size: .8rem;
+    text-align: center;
+    padding: .25rem;
+    word-break: break-all;
+}
+
+.slide-card .page-badge {
+    min-width: 5.5rem;
+}
+
+.char-counter.over {
+    color: #dc3545;
+    font-weight: 600;
+}
+
+.result-text {
+    white-space: pre-wrap;
+    background: #f8f9fa;
+    border-radius: .5rem;
+    padding: .5rem .75rem;
+    min-height: 2.5rem;
+}
+
+audio {
+    width: 100%;
+}
+
+@media (max-width: 575.98px) {
+    .slide-thumb,
+    .slide-thumb-placeholder {
+        width: 100%;
+        height: 140px;
+    }
+}

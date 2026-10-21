@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>SlideNarrator – Dịch & thuyết minh slide</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
+    <link href="css/site.css" rel="stylesheet" />
+</head>
+<body class="bg-body-tertiary">
+
+<nav class="navbar navbar-dark bg-primary mb-4">
+    <div class="container">
+        <span class="navbar-brand mb-0 h1">🎙️ SlideNarrator</span>
+        <span class="navbar-text small text-white-50">Tải slide → dịch → lồng tiếng đọc</span>
+    </div>
+</nav>
+
+<main class="container pb-5">
+
+    <ul class="nav nav-tabs mb-3" id="mainTabs" role="tablist">
+        <li class="nav-item" role="presentation">
+            <button class="nav-link active" id="tab-create" data-bs-toggle="tab" data-bs-target="#pane-create" type="button" role="tab">1. Tạo dự án</button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button class="nav-link" id="tab-result" data-bs-toggle="tab" data-bs-target="#pane-result" type="button" role="tab">2. Kết quả &amp; Trình phát</button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button class="nav-link" id="tab-projects" data-bs-toggle="tab" data-bs-target="#pane-projects" type="button" role="tab">Dự án của tôi</button>
+        </li>
+    </ul>
+
+    <div class="tab-content">
+
+        <!-- ================= MÀN HÌNH UPLOAD & CẤU HÌNH ================= -->
+        <section class="tab-pane fade show active" id="pane-create" role="tabpanel">
+            <div id="formAlert"></div>
+
+            <form id="createForm" novalidate>
+                <div class="card shadow-sm mb-3">
+                    <div class="card-header fw-semibold">Thông tin dự án</div>
+                    <div class="card-body row g-3">
+                        <div class="col-md-6">
+                            <label for="projectName" class="form-label">Tên dự án <span class="text-danger">*</span></label>
+                            <input id="projectName" class="form-control" maxlength="200" placeholder="Ví dụ: Intro to Software Engineering" required />
+                        </div>
+                        <div class="col-md-3">
+                            <label for="sourceLanguage" class="form-label">Ngôn ngữ gốc của slide</label>
+                            <select id="sourceLanguage" class="form-select"></select>
+                        </div>
+                        <div class="col-md-3">
+                            <label for="targetLanguage" class="form-label">Ngôn ngữ muốn dịch &amp; đọc</label>
+                            <select id="targetLanguage" class="form-select"></select>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card shadow-sm mb-3">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <span class="fw-semibold">Slide &amp; nội dung thuyết minh</span>
+                        <button type="button" id="btnAddSlide" class="btn btn-sm btn-outline-primary">+ Thêm slide trống</button>
+                    </div>
+                    <div class="card-body">
+                        <div id="dropzone" class="dropzone text-center mb-3" tabindex="0">
+                            <div class="fs-1">📄</div>
+                            <div class="fw-semibold">Kéo thả ảnh slide vào đây hoặc bấm để chọn file</div>
+                            <div class="small text-muted">Chấp nhận .png, .jpg, .pdf. Mỗi ảnh tạo một trang slide.</div>
+                            <input id="fileInput" type="file" class="d-none" accept=".png,.jpg,.jpeg,.pdf" multiple />
+                        </div>
+
+                        <div id="slideList" class="vstack gap-3"></div>
+                        <div id="slideEmpty" class="text-muted text-center py-3">Chưa có slide nào. Hãy tải ảnh lên hoặc bấm “Thêm slide trống” rồi nhập văn bản.</div>
+                    </div>
+                </div>
+
+                <div class="d-flex align-items-center gap-3">
+                    <button type="submit" id="btnSubmit" class="btn btn-primary btn-lg">🌐 Dịch &amp; Tạo thuyết minh</button>
+                    <div class="flex-grow-1 d-none" id="progressWrap">
+                        <div class="progress" role="progressbar" style="height: 22px">
+                            <div id="progressBar" class="progress-bar progress-bar-striped progress-bar-animated" style="width: 0%">0%</div>
+                        </div>
+                        <div id="progressText" class="small text-muted mt-1"></div>
+                    </div>
+                </div>
+            </form>
+        </section>
+
+        <!-- ================= MÀN HÌNH KẾT QUẢ & TRÌNH PHÁT ================= -->
+        <section class="tab-pane fade" id="pane-result" role="tabpanel">
+            <div id="resultEmpty" class="text-center text-muted py-5">
+                Chưa có kết quả. Hãy tạo dự án ở bước 1 hoặc mở một dự án trong “Dự án của tôi”.
+            </div>
+            <div id="resultBox" class="d-none">
+                <div class="d-flex flex-wrap justify-content-between align-items-center mb-3 gap-2">
+                    <div>
+                        <h4 class="mb-0" id="resultTitle"></h4>
+                        <div class="small text-muted" id="resultMeta"></div>
+                    </div>
+                    <div class="form-check form-switch">
+                        <input class="form-check-input" type="checkbox" id="autoNext" checked />
+                        <label class="form-check-label" for="autoNext">Tự phát trang kế tiếp</label>
+                    </div>
+                </div>
+                <div id="resultList" class="vstack gap-3"></div>
+            </div>
+        </section>
+
+        <!-- ================= DANH SÁCH DỰ ÁN ================= -->
+        <section class="tab-pane fade" id="pane-projects" role="tabpanel">
+            <div id="projectsAlert"></div>
+            <div class="card shadow-sm">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <span class="fw-semibold">Danh sách dự án</span>
+                    <button class="btn btn-sm btn-outline-secondary" id="btnReload" type="button">↻ Tải lại</button>
+                </div>
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle mb-0">
+                        <thead>
+                        <tr><th>Tên dự án</th><th>Ngôn ngữ gốc</th><th class="text-end">Số trang</th><th>Ngày tạo</th><th class="text-end">Thao tác</th></tr>
+                        </thead>
+                        <tbody id="projectRows"></tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+    </div>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script src="js/api.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>

@@ -44,6 +44,9 @@ if (app.Environment.IsDevelopment())
 // 6. Comment dòng này lại để tránh lỗi chuyển hướng khi chạy http://localhost:5000
 // app.UseHttpsRedirection();
 
+app.UseDefaultFiles();   // THÊM: vào "/" thì tự mở index.html
+app.UseStaticFiles();    // THÊM: phục vụ file trong wwwroot
+
 app.UseSwagger();
 app.UseSwaggerUI();
 

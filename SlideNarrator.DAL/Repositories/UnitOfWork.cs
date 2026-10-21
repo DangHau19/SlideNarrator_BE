@@ -13,23 +13,37 @@ public class UnitOfWork : IUnitOfWork
         Roles = new GenericRepository<Role>(context);
         Users = new UserRepository(context);
         Projects = new ProjectRepository(context);
-        Slides = new GenericRepository<SlidePage>(context);
-        Translations = new GenericRepository<TranslationRecord>(context);
-        AudioTracks = new GenericRepository<AudioTrack>(context);
+        Slides = new SlideRepository(context);
+        Translations = new TranslationRepository(context);
+        AudioTracks = new AudioTrackRepository(context);
         Jobs = new JobRepository(context);
-        Logs = new GenericRepository<LogEntry>(context);
+        Logs = new LogRepository(context);
         ApiKeys = new GenericRepository<ApiKeySetting>(context);
     }
 
     public IGenericRepository<Role> Roles { get; }
     public IUserRepository Users { get; }
     public IProjectRepository Projects { get; }
-    public IGenericRepository<SlidePage> Slides { get; }
-    public IGenericRepository<TranslationRecord> Translations { get; }
-    public IGenericRepository<AudioTrack> AudioTracks { get; }
+    public ISlideRepository Slides { get; }
+    public ITranslationRepository Translations { get; }
+    public IAudioTrackRepository AudioTracks { get; }
     public IJobRepository Jobs { get; }
-    public IGenericRepository<LogEntry> Logs { get; }
+    public ILogRepository Logs { get; }
     public IGenericRepository<ApiKeySetting> ApiKeys { get; }
 
     public Task<int> SaveChangesAsync() => _context.SaveChangesAsync();
+    public async Task ExecuteInTransactionAsync(Func<Task> work)
+    {
+        await using var transaction = await _context.Database.BeginTransactionAsync();
+        try
+        {
+            await work();
+            await transaction.CommitAsync();
+        }
+        catch
+        {
+            await transaction.RollbackAsync();
+            throw;
+        }
+    }
 }

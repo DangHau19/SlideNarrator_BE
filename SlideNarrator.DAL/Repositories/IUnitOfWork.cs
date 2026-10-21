@@ -11,12 +11,14 @@ public interface IUnitOfWork
     IGenericRepository<Role> Roles { get; }
     IUserRepository Users { get; }
     IProjectRepository Projects { get; }
-    IGenericRepository<SlidePage> Slides { get; }
-    IGenericRepository<TranslationRecord> Translations { get; }
-    IGenericRepository<AudioTrack> AudioTracks { get; }
+    ISlideRepository Slides { get; }
+    ITranslationRepository Translations { get; }
+    IAudioTrackRepository AudioTracks { get; }
     IJobRepository Jobs { get; }
-    IGenericRepository<LogEntry> Logs { get; }
+    ILogRepository Logs { get; }
     IGenericRepository<ApiKeySetting> ApiKeys { get; }
 
     Task<int> SaveChangesAsync();
+
+    Task ExecuteInTransactionAsync(Func<Task> work);
 }

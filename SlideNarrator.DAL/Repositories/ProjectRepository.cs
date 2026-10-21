@@ -21,6 +21,26 @@ public class ProjectRepository : GenericRepository<PresentationProject>, IProjec
            .AsSplitQuery()
            .FirstOrDefaultAsync(p => p.Id == id);
 
+    public Task<PresentationProject?> GetWithAudioAsync(Guid id, string? targetLanguage = null)
+    {
+        IQueryable<PresentationProject> query = Set;
+
+        if (string.IsNullOrEmpty(targetLanguage))
+        {
+            query = query.Include(p => p.Slides.OrderBy(s => s.PageNumber))
+                             .ThenInclude(s => s.Translations)
+                                 .ThenInclude(t => t.AudioTracks);
+        }
+        else
+        {
+            query = query.Include(p => p.Slides.OrderBy(s => s.PageNumber))
+                             .ThenInclude(s => s.Translations.Where(t => t.TargetLanguage == targetLanguage))
+                                 .ThenInclude(t => t.AudioTracks);
+        }
+
+        return query.AsNoTracking().AsSplitQuery().FirstOrDefaultAsync(p => p.Id == id);
+    }
+
     public Task<List<PresentationProject>> GetByOwnerAsync(Guid userId) =>
         Set.AsNoTracking()
            .Where(p => p.UserAccountId == userId)

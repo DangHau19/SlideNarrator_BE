@@ -12,4 +12,5 @@ public interface IProjectRepository : IGenericRepository<PresentationProject>
 
     /// <summary>Lấy các dự án của một người dùng, mới nhất trước.</summary>
     Task<List<PresentationProject>> GetByOwnerAsync(Guid userId);
+    Task<PresentationProject?> GetWithAudioAsync(Guid id, string? targetLanguage = null);
 }

@@ -26,8 +26,13 @@ public class GenericRepository<T> : IGenericRepository<T> where T : class
     public async Task<bool> AnyAsync(Expression<Func<T, bool>> predicate) =>
         await Set.AnyAsync(predicate);
 
+    public async Task<int> CountAsync(Expression<Func<T, bool>> predicate) =>
+        await Set.CountAsync(predicate);
+
     public async Task AddAsync(T entity) => await Set.AddAsync(entity);
 
+    public async Task AddRangeAsync(IEnumerable<T> entities) => await Set.AddRangeAsync(entities);
+    
     public void Update(T entity) => Set.Update(entity);
 
     public void Remove(T entity) => Set.Remove(entity);

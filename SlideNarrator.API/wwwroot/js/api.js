@@ -1,12 +1,7 @@
 /* Lớp gọi API của Backend. Mọi đường dẫn endpoint gom về một chỗ để dễ đổi khi Backend hoàn thiện. */
 const Api = (() => {
-    // Endpoint tạo audio: ưu tiên endpoint chuẩn theo đặc tả (Lead Backend sẽ làm),
-    // nếu chưa có (404/405) thì tự động dùng endpoint demo hiện có.
-    const AUDIO_ENDPOINTS = [
-        '/api/slides/generate-audio',
-        '/api/DemoAudio/generate-speech'
-    ];
-    let audioIdx = 0;
+    // Endpoint production xử lý bản dịch và audio cho các slide.
+    const AUDIO_ENDPOINT = '/api/Slides/process-presentation';
 
     async function request(url, options = {}) {
         let res;
@@ -32,7 +27,7 @@ const Api = (() => {
 
     function extractMessage(data, text, status) {
         if (data) {
-            if (data.message) return data.message;               // ErrorResponse của nhóm / DemoAudio
+            if (data.message) return data.message;
             if (data.error) return data.error;
             if (data.errors) {                                    // ValidationProblemDetails của ASP.NET
                 return Object.values(data.errors).flat().join(' ');
@@ -68,34 +63,35 @@ const Api = (() => {
         /** DELETE /api/projects/{id} */
         deleteProject: (id) => request(`/api/projects/${id}`, { method: 'DELETE' }),
 
-        /**
-         * Tạo thuyết minh cho một slide. Gửi kèm cả tên trường kiểu đặc tả (camelCase)
-         * lẫn tên trường của endpoint demo, trường thừa sẽ bị Backend bỏ qua.
-         */
-        async generateAudio({ projectId, projectName, pageNumber, text, sourceLanguage, targetLanguage }) {
+        /** POST /api/Slides/upload-slides */
+        uploadSlides: (files) => {
+            const formData = new FormData();
+            for (const file of files) formData.append('files', file);
+            return request('/api/Slides/upload-slides', {
+                method: 'POST',
+                body: formData
+            });
+        },
+
+        /** Tạo bản dịch và thuyết minh cho một slide. */
+        async generateAudio({ projectName, pageNumber, text, sourceLanguage, targetLanguage }) {
             const body = {
-                projectId, pageNumber, sourceLanguage, targetLanguage,
-                text,
                 projectName,
-                textContent: text
+                sourceLanguage,
+                targetLanguage,
+                slides: [{
+                    pageNumber,
+                    narrativeText: text,
+                    imagePath: ''
+                }]
             };
 
-            let lastErr;
-            for (let i = audioIdx; i < AUDIO_ENDPOINTS.length; i++) {
-                try {
-                    const data = await jsonPost(AUDIO_ENDPOINTS[i], body);
-                    audioIdx = i;
-                    return {
-                        audioUrl: toPlayableUrl(data?.audioUrl ?? data?.filePath),
-                        translatedText: data?.translatedText ?? null
-                    };
-                } catch (e) {
-                    lastErr = e;
-                    if (e.status === 404 || e.status === 405) continue;   // endpoint chưa tồn tại, thử endpoint kế
-                    throw e;
-                }
-            }
-            throw lastErr;
+            const data = await jsonPost(AUDIO_ENDPOINT, body);
+            const result = data?.results?.[0];
+            return {
+                audioUrl: toPlayableUrl(result?.audioUrl),
+                translatedText: result?.translatedText ?? null
+            };
         },
 
         toPlayableUrl

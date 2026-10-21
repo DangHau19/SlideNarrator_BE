@@ -1,19 +1,22 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.FileProviders;
 using SlideNarrator.BLL;
 using SlideNarrator.DAL.Data;
 using SlideNarrator.DAL.Repositories;
+using System.IO;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// 1. Đăng ký HttpClient và Service TTS
+// 1. Đăng ký HttpClient cho Service TTS và Dịch thuật
 builder.Services.AddHttpClient<ITtsService, TtsService>();
+builder.Services.AddHttpClient<ITranslationService, TranslationService>();
 
-// 2. Lấy chuỗi kết nối (kiểm tra key "DefaultConnection" hoặc "Default" trong appsettings.json)
+// 2. Lấy chuỗi kết nối
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
                        ?? builder.Configuration.GetConnectionString("Default")
                        ?? DesignTimeDbContextFactory.DefaultConnection;
 
-// 3. ĐĂNG KÝ DBCONTEXT SỬ DỤNG MYSQL
+// 3. Đăng ký DbContext cho MySQL
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseMySql(connectionString, ServerVersion.AutoDetect(connectionString)));
 
@@ -44,13 +47,28 @@ if (app.Environment.IsDevelopment())
 // 6. Comment dòng này lại để tránh lỗi chuyển hướng khi chạy http://localhost:5000
 // app.UseHttpsRedirection();
 
-app.UseDefaultFiles();   // THÊM: vào "/" thì tự mở index.html
-app.UseStaticFiles();    // THÊM: phục vụ file trong wwwroot
+// 7. CẤU HÌNH GIAO DIỆN WEB CỦA THÀNH VIÊN 1 (WWWROOT)
+app.UseDefaultFiles();   // Vào "/" thì tự động mở index.html
+app.UseStaticFiles();    // Phục vụ file HTML, CSS, JS trong wwwroot
+
+// 8. CẤU HÌNH PHỤC VỤ FILE ÂM THANH CHO TRÌNH DUYỆT PHÁT NHẠC (/audio/...)
+var outputAudioDir = Path.Combine(Directory.GetCurrentDirectory(), "OutputAudio");
+if (!Directory.Exists(outputAudioDir))
+{
+    Directory.CreateDirectory(outputAudioDir);
+}
+
+app.UseStaticFiles(new StaticFileOptions
+{
+    FileProvider = new PhysicalFileProvider(outputAudioDir),
+    RequestPath = "/audio"
+});
 
 app.UseSwagger();
 app.UseSwaggerUI();
 
 app.UseAuthorization();
+
 app.MapControllers();
 
 app.Run();

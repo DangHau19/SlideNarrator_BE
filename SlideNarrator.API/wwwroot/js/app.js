@@ -35,20 +35,51 @@
     const showTab = (id) => bootstrap.Tab.getOrCreateInstance($(id)).show();
 
     // ---------- Màn Upload & Cấu hình ----------
-    function addFiles(fileList) {
+    async function addFiles(fileList) {
         const rejected = [];
+        const accepted = [];
         for (const file of fileList) {
             const ext = file.name.split('.').pop().toLowerCase();
-            if (['png', 'jpg', 'jpeg'].includes(ext)) {
-                slides.push({ id: nextId++, kind: 'image', fileName: file.name, previewUrl: URL.createObjectURL(file), text: '' });
-            } else if (ext === 'pdf') {
-                slides.push({ id: nextId++, kind: 'pdf', fileName: file.name, previewUrl: null, text: '' });
-            } else {
-                rejected.push(file.name);
-            }
+            if (['png', 'jpg', 'jpeg', 'pdf'].includes(ext)) accepted.push(file);
+            else rejected.push(file.name);
         }
-        showAlert('#formAlert', rejected.length ? `Chỉ nhận .pdf, .png, .jpg. Đã bỏ qua: ${rejected.join(', ')}` : '', 'warning');
-        renderSlides();
+
+        if (!accepted.length) {
+            return showAlert('#formAlert', `Chỉ nhận .pdf, .png, .jpg. Đã bỏ qua: ${rejected.join(', ')}`, 'warning');
+        }
+
+        showAlert('#formAlert', 'Đang tải file và đọc nội dung slide…', 'info');
+        try {
+            const result = await Api.uploadSlides(accepted);
+            const pages = result?.pages ?? [];
+            if (!pages.length) throw new Error('Backend không trả về trang nào từ file đã chọn.');
+
+            pages.forEach((page, index) => {
+                const isPdf = /pdf_icon/i.test(page.imageUrl ?? '');
+                const sourceFile = isPdf
+                    ? accepted.find((file) => file.name.toLowerCase().endsWith('.pdf'))
+                    : accepted[index];
+
+                slides.push({
+                    id: nextId++,
+                    kind: isPdf ? 'pdf' : 'image',
+                    fileName: sourceFile?.name ?? `Trang ${page.pageNumber}`,
+                    previewUrl: !isPdf && sourceFile ? URL.createObjectURL(sourceFile) : null,
+                    text: (page.extractedText ?? '').trim()
+                });
+            });
+
+            const emptyExtracted = pages.some((page) => !(page.extractedText ?? '').trim());
+            const message = emptyExtracted
+                ? 'Đã tải file. Một số trang chưa trích xuất được chữ; ảnh JPG/PNG hiện cần OCR hoặc nhập nội dung thủ công.'
+                : '';
+            showAlert('#formAlert', rejected.length
+                ? `${message} Đã bỏ qua: ${rejected.join(', ')}`
+                : message, 'warning');
+            renderSlides();
+        } catch (e) {
+            showAlert('#formAlert', e.message);
+        }
     }
 
     function addEmptySlide() {

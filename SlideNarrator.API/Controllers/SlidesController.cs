@@ -1,6 +1,7 @@
-﻿using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc;
 using SlideNarrator.API.DTOs;
 using SlideNarrator.BLL;
+using SlideNarrator.BLL.DTOs;
 using SlideNarrator.DAL.Entities;
 using SlideNarrator.DAL.Repositories;
 using System;
@@ -10,7 +11,6 @@ using System.Threading.Tasks;
 
 namespace SlideNarrator.API.Controllers
 {
-
     [ApiController]
     [Route("api/[controller]")]
     public class SlidesController : ControllerBase
@@ -18,15 +18,18 @@ namespace SlideNarrator.API.Controllers
         private readonly ITranslationService _translationService;
         private readonly ITtsService _ttsService;
         private readonly IUnitOfWork _unitOfWork;
+        private readonly IWebHostEnvironment _env;
 
         public SlidesController(
             ITranslationService translationService,
             ITtsService ttsService,
-            IUnitOfWork unitOfWork)
+            IUnitOfWork unitOfWork,
+            IWebHostEnvironment env)
         {
             _translationService = translationService;
             _ttsService = ttsService;
             _unitOfWork = unitOfWork;
+            _env = env;
         }
 
         [HttpPost("upload-slides")]
@@ -34,13 +37,13 @@ namespace SlideNarrator.API.Controllers
         {
             if (files == null || files.Count == 0)
             {
-                return BadRequest(new { message = "Vui lòng chọn ít nhất một file (PDF, JPG, PNG)." });
+                return BadRequest(MakeError(400, "VALIDATION_ERROR", "Vui lòng chọn ít nhất một file (PDF, JPG, PNG)."));
             }
 
-            var webRootPath = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot");
+            var webRootPath = _env.WebRootPath ?? Path.Combine(_env.ContentRootPath, "wwwroot");
             var service = new SlideProcessingService(webRootPath);
             var resultList = new List<ExtractedPageDto>();
-            int currentPageNumber = 1;
+            var currentPageNumber = 1;
 
             foreach (var file in files)
             {
@@ -64,7 +67,8 @@ namespace SlideNarrator.API.Controllers
                 }
                 else
                 {
-                    return BadRequest(new { message = $"Định dạng file {ext} không được hỗ trợ. Chỉ nhận .pdf, .jpg, .png." });
+                    return BadRequest(MakeError(400, "UNSUPPORTED_FILE_TYPE",
+                        $"Định dạng file {ext} không được hỗ trợ. Chỉ nhận .pdf, .jpg, .png."));
                 }
             }
 
@@ -76,73 +80,113 @@ namespace SlideNarrator.API.Controllers
             });
         }
 
+        /// <summary>
+        /// Dịch + tạo giọng đọc cho các slide rồi LƯU vào dự án đã có (SLIDE_PAGE, TRANSLATION_RECORD, AUDIO_TRACK).
+        /// Gọi lại cho cùng (dự án, số trang, ngôn ngữ) sẽ cập nhật chứ không nhân đôi dữ liệu.
+        /// </summary>
         [HttpPost("process-presentation")]
         public async Task<IActionResult> ProcessPresentation([FromBody] ProcessSlideBatchRequest request)
         {
             if (request == null || request.Slides == null || request.Slides.Count == 0)
             {
-                return BadRequest(new { message = "Dữ liệu slide không hợp lệ hoặc rỗng." });
+                return BadRequest(MakeError(400, "VALIDATION_ERROR", "Dữ liệu slide không hợp lệ hoặc rỗng."));
             }
 
-            // 1. Tạo dự án mới lưu vào bảng PRESENTATION_PROJECT (Dùng Guid)
-            var project = new PresentationProject
+            if (request.ProjectId is null || request.ProjectId == Guid.Empty)
             {
-                Id = Guid.NewGuid(),
-                Name = string.IsNullOrWhiteSpace(request.ProjectName) ? "Dự án mới" : request.ProjectName,
-                SourceLanguage = request.SourceLanguage,
-                SourceFileType = "pdf",
-                PageCount = request.Slides.Count,
-                CreatedAt = DateTime.UtcNow,
-                UserAccountId = Guid.NewGuid() // Khởi tạo một Guid cho UserAccount
-            };
+                return BadRequest(MakeError(400, "VALIDATION_ERROR",
+                    "Thiếu projectId. Hãy tạo dự án bằng POST /api/projects trước."));
+            }
+
+            var project = await _unitOfWork.Projects.GetByIdAsync(request.ProjectId.Value);
+            if (project is null)
+            {
+                return NotFound(MakeError(404, "PROJECT_NOT_FOUND", "Không tìm thấy dự án."));
+            }
+
+            var targetLanguage = string.IsNullOrWhiteSpace(request.TargetLanguage)
+                ? "vi" : request.TargetLanguage.Trim().ToLowerInvariant();
+            var sourceLanguage = string.IsNullOrWhiteSpace(request.SourceLanguage)
+                ? project.SourceLanguage : request.SourceLanguage.Trim().ToLowerInvariant();
 
             var responseList = new List<ProcessSlideResponseDto>();
 
-            // 2. Lặp qua từng slide: Dịch -> Sinh Audio -> Tạo Entity
             foreach (var item in request.Slides)
             {
-                // a. Dịch thuật
-                var translatedText = await _translationService.TranslateAsync(
-                    item.NarrativeText,
-                    request.SourceLanguage,
-                    request.TargetLanguage
-                );
-
-                // b. Sinh giọng nói TTS
-                var audioPhysicalPath = await _ttsService.GenerateSpeechSampleAsync(translatedText, request.TargetLanguage);
-                var audioFileName = Path.GetFileName(audioPhysicalPath);
-                var audioWebUrl = $"/audio/{audioFileName}";
-
-                // c. Tạo SlidePage entity (Dùng Guid và OriginalNarration)
-                var slidePage = new SlidePage
+                if (string.IsNullOrWhiteSpace(item.NarrativeText))
                 {
-                    Id = Guid.NewGuid(),
-                    PageNumber = item.PageNumber,
-                    ImagePath = string.IsNullOrWhiteSpace(item.ImagePath) ? "/images/default_slide.png" : item.ImagePath,
-                    NarrationText = item.NarrativeText,
-                    PresentationProjectId = project.Id
-                };
+                    return BadRequest(MakeError(400, "VALIDATION_ERROR",
+                        $"Trang {item.PageNumber} chưa có văn bản thuyết minh."));
+                }
 
-                // d. Tạo TranslationRecord entity (Dùng Guid)
-                var transRecord = new TranslationRecord
+                // a + b. Dịch rồi sinh giọng đọc (không giới hạn độ dài: service tự chia đoạn).
+                // Làm trước khi mở giao dịch để không giữ kết nối DB trong lúc chờ dịch vụ ngoài.
+                string translatedText;
+                string audioPhysicalPath;
+                try
                 {
-                    Id = Guid.NewGuid(),
-                    TargetLanguage = request.TargetLanguage,
-                    TranslatedText = translatedText,
-                    CreatedAt = DateTime.UtcNow,
-                    SlidePageId = slidePage.Id
-                };
+                    translatedText = await _translationService.TranslateAsync(
+                        item.NarrativeText, sourceLanguage, targetLanguage);
+                    audioPhysicalPath = await _ttsService.GenerateSpeechSampleAsync(translatedText, targetLanguage);
+                }
+                catch (Exception ex)
+                {
+                    return StatusCode(502, MakeError(502, "EXTERNAL_SERVICE_ERROR",
+                        $"Trang {item.PageNumber}: {ex.Message}"));
+                }
 
-                // e. Tạo AudioTrack entity (Dùng Guid)
-                var audioTrack = new AudioTrack
+                var audioWebUrl = $"/audio/{Path.GetFileName(audioPhysicalPath)}";
+                var oldAudioUrls = new List<string>();
+
+                // c, d, e. Lưu slide + bản dịch + audio trong MỘT giao dịch
+                await _unitOfWork.ExecuteInTransactionAsync(async () =>
                 {
-                    Id = Guid.NewGuid(),
-                    FilePath = audioPhysicalPath,
-                    VoiceName = request.TargetLanguage == "vi" ? "vi-VN-Standard" : "en-US-Standard",
-                    Speed = 1.0,
-                    CreatedAt = DateTime.UtcNow,
-                    TranslationRecordId = transRecord.Id
-                };
+                    var slide = await _unitOfWork.Slides.GetByPageNumberAsync(project.Id, item.PageNumber);
+                    var imagePath = string.IsNullOrWhiteSpace(item.ImagePath) ? null : item.ImagePath;
+
+                    if (slide is null)
+                    {
+                        slide = new SlidePage
+                        {
+                            PresentationProjectId = project.Id,
+                            PageNumber = item.PageNumber,
+                            ImagePath = imagePath ?? "/images/default_slide.png",
+                            NarrationText = item.NarrativeText
+                        };
+                        await _unitOfWork.Slides.AddAsync(slide);
+                    }
+                    else
+                    {
+                        slide.NarrationText = item.NarrativeText;
+                        if (imagePath is not null) slide.ImagePath = imagePath;
+                    }
+                    await _unitOfWork.SaveChangesAsync();
+
+                    var translation = await _unitOfWork.Translations.UpsertAsync(slide.Id, targetLanguage, translatedText);
+                    await _unitOfWork.SaveChangesAsync();
+
+                    // Mỗi bản dịch chỉ giữ audio mới nhất; audio cũ bị thay thế
+                    var oldTracks = await _unitOfWork.AudioTracks.FindAsync(a => a.TranslationRecordId == translation.Id);
+                    foreach (var old in oldTracks)
+                    {
+                        oldAudioUrls.Add(old.FilePath);
+                        _unitOfWork.AudioTracks.Remove(old);
+                    }
+
+                    await _unitOfWork.AudioTracks.AddAsync(new AudioTrack
+                    {
+                        TranslationRecordId = translation.Id,
+                        FilePath = audioWebUrl,                       // lưu URL tương đối, không lưu đường dẫn ổ đĩa
+                        VoiceName = $"{targetLanguage}-GoogleTranslate",
+                        VoiceGender = "Female",
+                        Speed = 1.0
+                    });
+
+                    project.PageCount = await _unitOfWork.Slides.CountAsync(s => s.PresentationProjectId == project.Id);
+                    await _unitOfWork.SaveChangesAsync();
+                });
+
+                foreach (var url in oldAudioUrls) TryDeleteAudioFile(url);
 
                 responseList.Add(new ProcessSlideResponseDto
                 {
@@ -153,9 +197,6 @@ namespace SlideNarrator.API.Controllers
                 });
             }
 
-            // 3. Commit toàn bộ giao dịch vào MySQL
-            await _unitOfWork.SaveChangesAsync();
-
             return Ok(new
             {
                 message = "Xử lý dịch thuật và tạo thuyết minh thành công!",
@@ -164,5 +205,24 @@ namespace SlideNarrator.API.Controllers
                 results = responseList
             });
         }
+
+        private static void TryDeleteAudioFile(string? storedPath)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(storedPath)) return;
+                var name = Path.GetFileName(storedPath);
+                if (string.IsNullOrEmpty(name)) return;
+                var path = Path.Combine(Directory.GetCurrentDirectory(), "OutputAudio", name);
+                if (System.IO.File.Exists(path)) System.IO.File.Delete(path);
+            }
+            catch
+            {
+                // dọn file không thành công thì bỏ qua, không ảnh hưởng kết quả
+            }
+        }
+
+        private static ErrorResponse MakeError(int status, string error, string message) =>
+            new(status, error, message, null, DateTime.UtcNow);
     }
 }

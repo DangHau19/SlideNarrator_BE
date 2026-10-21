@@ -38,9 +38,12 @@ public record ViewPageItem(
     int PageNumber,
     string ImageUrl,
     string? AudioUrl,
-    string TranslatedText);
+    string TranslatedText,
+    string? OriginalText = null);        // văn bản thuyết minh gốc
 
 public record ViewPackageResponse(
     Guid ProjectId,
     string Language,
-    List<ViewPageItem> Pages);
+    List<ViewPageItem> Pages,
+    string? ProjectName = null,
+    string? SourceLanguage = null);

@@ -1,6 +1,6 @@
 /* Lớp gọi API của Backend. Mọi đường dẫn endpoint gom về một chỗ để dễ đổi khi Backend hoàn thiện. */
 const Api = (() => {
-    // Endpoint production xử lý bản dịch và audio cho các slide.
+    // Endpoint dịch + tạo audio và LƯU kết quả vào dự án trong MySQL.
     const AUDIO_ENDPOINT = '/api/Slides/process-presentation';
 
     async function request(url, options = {}) {
@@ -60,6 +60,10 @@ const Api = (() => {
         /** GET /api/projects */
         listProjects: () => request('/api/projects'),
 
+        /** GET /api/projects/{id}/view : trang + bản dịch + audio đã lưu trong DB */
+        getProjectView: (id, language) =>
+            request(`/api/projects/${id}/view` + (language ? `?language=${encodeURIComponent(language)}` : '')),
+
         /** DELETE /api/projects/{id} */
         deleteProject: (id) => request(`/api/projects/${id}`, { method: 'DELETE' }),
 
@@ -73,16 +77,17 @@ const Api = (() => {
             });
         },
 
-        /** Tạo bản dịch và thuyết minh cho một slide. */
-        async generateAudio({ projectName, pageNumber, text, sourceLanguage, targetLanguage }) {
+        /** Dịch + tạo thuyết minh cho một slide và lưu vào dự án. */
+        async generateAudio({ projectId, projectName, pageNumber, text, imagePath, sourceLanguage, targetLanguage }) {
             const body = {
+                projectId,
                 projectName,
                 sourceLanguage,
                 targetLanguage,
                 slides: [{
                     pageNumber,
                     narrativeText: text,
-                    imagePath: ''
+                    imagePath: imagePath || ''
                 }]
             };
 

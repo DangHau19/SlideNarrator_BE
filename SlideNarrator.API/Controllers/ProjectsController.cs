@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 using SlideNarrator.BLL;
 using SlideNarrator.BLL.DTOs;
+using SlideNarrator.DAL.Repositories;
 
 namespace SlideNarrator.API.Controllers;
 
@@ -13,10 +14,12 @@ namespace SlideNarrator.API.Controllers;
 public class ProjectsController : ControllerBase
 {
     private readonly IProjectService _projects;
+    private readonly IUnitOfWork _uow;
 
-    public ProjectsController(IProjectService projects)
+    public ProjectsController(IProjectService projects, IUnitOfWork uow)
     {
         _projects = projects;
+        _uow = uow;
     }
 
     /// <summary>Tạo dự án bài giảng mới (US-05).</summary>
@@ -51,6 +54,44 @@ public class ProjectsController : ControllerBase
         return project is null
             ? NotFound(MakeError(404, "PROJECT_NOT_FOUND", "Không tìm thấy dự án."))
             : Ok(project);
+    }
+
+    /// <summary>
+    /// Gói xem lại dự án: các trang kèm văn bản gốc, bản dịch và audio đã lưu trong MySQL.
+    /// Không truyền language thì lấy ngôn ngữ dịch mới nhất của dự án.
+    /// </summary>
+    [HttpGet("{id:guid}/view")]
+    [ProducesResponseType(typeof(ViewPackageResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetView(Guid id, [FromQuery] string? language = null)
+    {
+        var lang = string.IsNullOrWhiteSpace(language) ? null : language.Trim().ToLowerInvariant();
+        var project = await _uow.Projects.GetWithAudioAsync(id, lang);
+        if (project is null)
+            return NotFound(MakeError(404, "PROJECT_NOT_FOUND", "Không tìm thấy dự án."));
+
+        var slides = project.Slides.OrderBy(s => s.PageNumber).ToList();
+
+        var chosen = lang
+            ?? slides.SelectMany(s => s.Translations)
+                     .OrderByDescending(t => t.UpdatedAt)
+                     .Select(t => t.TargetLanguage)
+                     .FirstOrDefault()
+            ?? string.Empty;
+
+        var pages = slides.Select(s =>
+        {
+            var translation = s.Translations.FirstOrDefault(t => t.TargetLanguage == chosen);
+            var audio = translation?.AudioTracks.OrderByDescending(a => a.CreatedAt).FirstOrDefault();
+            return new ViewPageItem(
+                s.PageNumber,
+                s.ImagePath,
+                audio?.FilePath,
+                translation?.TranslatedText ?? string.Empty,
+                s.NarrationText);
+        }).ToList();
+
+        return Ok(new ViewPackageResponse(project.Id, chosen, pages, project.Name, project.SourceLanguage));
     }
 
     /// <summary>Xóa dự án (US-09).</summary>

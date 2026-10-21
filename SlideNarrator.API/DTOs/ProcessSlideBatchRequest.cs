@@ -1,4 +1,4 @@
-﻿using System.Collections.Generic;
+using System.Collections.Generic;
 
 namespace SlideNarrator.API.DTOs
 {
@@ -11,6 +11,8 @@ namespace SlideNarrator.API.DTOs
 
     public class ProcessSlideBatchRequest
     {
+        /// <summary>Id dự án đã tạo bằng POST /api/projects; kết quả dịch và audio được lưu vào dự án này.</summary>
+        public Guid? ProjectId { get; set; }
         public string ProjectName { get; set; } = string.Empty;
         public string SourceLanguage { get; set; } = "en";
         public string TargetLanguage { get; set; } = "vi";

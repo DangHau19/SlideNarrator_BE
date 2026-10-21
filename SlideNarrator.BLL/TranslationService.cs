@@ -1,5 +1,6 @@
-﻿using System;
+using System;
 using System.Net.Http;
+using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
 
@@ -7,6 +8,10 @@ namespace SlideNarrator.BLL
 {
     public class TranslationService : ITranslationService
     {
+        // Gửi bằng GET nên mỗi lần chỉ dịch một đoạn ngắn để URL không vượt giới hạn độ dài.
+        private const int MaxChunkLength = 450;
+        private const int MaxAttempts = 3;
+
         private readonly HttpClient _httpClient;
 
         public TranslationService(HttpClient httpClient)
@@ -22,39 +27,64 @@ namespace SlideNarrator.BLL
         public async Task<string> TranslateAsync(string text, string sourceLanguage, string targetLanguage)
         {
             if (string.IsNullOrWhiteSpace(text)) return string.Empty;
-            if (sourceLanguage.Equals(targetLanguage, StringComparison.OrdinalIgnoreCase)) return text;
+            if (string.Equals(sourceLanguage?.Trim(), targetLanguage?.Trim(), StringComparison.OrdinalIgnoreCase))
+                return text;
 
-            try
+            var sl = GoogleLanguage.Normalize(sourceLanguage);
+            var tl = GoogleLanguage.Normalize(targetLanguage);
+
+            var result = new StringBuilder();
+            foreach (var chunk in TextChunker.Split(text, MaxChunkLength))
             {
-                var url = $"https://translate.googleapis.com/translate_a/single?client=gtx&sl={sourceLanguage}&tl={targetLanguage}&dt=t&q={Uri.EscapeDataString(text)}";
-                var response = await _httpClient.GetStringAsync(url);
+                var translated = await TranslateChunkAsync(chunk, sl, tl);
+                if (result.Length > 0) result.Append(' ');
+                result.Append(translated.Trim());
+            }
 
-                using var doc = JsonDocument.Parse(response);
-                var root = doc.RootElement;
-                if (root.ValueKind == JsonValueKind.Array && root.GetArrayLength() > 0)
+            return result.ToString();
+        }
+
+        private async Task<string> TranslateChunkAsync(string chunk, string sl, string tl)
+        {
+            var url = $"https://translate.googleapis.com/translate_a/single?client=gtx&sl={sl}&tl={tl}&dt=t&q={Uri.EscapeDataString(chunk)}";
+
+            Exception? last = null;
+            for (var attempt = 1; attempt <= MaxAttempts; attempt++)
+            {
+                try
                 {
-                    var sentences = root[0];
-                    var fullTranslatedText = "";
-                    foreach (var sentence in sentences.EnumerateArray())
+                    var response = await _httpClient.GetStringAsync(url);
+                    using var doc = JsonDocument.Parse(response);
+                    var root = doc.RootElement;
+
+                    if (root.ValueKind == JsonValueKind.Array && root.GetArrayLength() > 0 &&
+                        root[0].ValueKind == JsonValueKind.Array)
                     {
-                        if (sentence.GetArrayLength() > 0)
+                        var sb = new StringBuilder();
+                        foreach (var sentence in root[0].EnumerateArray())
                         {
-                            fullTranslatedText += sentence[0].GetString();
+                            if (sentence.ValueKind == JsonValueKind.Array && sentence.GetArrayLength() > 0 &&
+                                sentence[0].ValueKind == JsonValueKind.String)
+                            {
+                                sb.Append(sentence[0].GetString());
+                            }
                         }
+
+                        if (!string.IsNullOrWhiteSpace(sb.ToString())) return sb.ToString();
                     }
 
-                    if (!string.IsNullOrWhiteSpace(fullTranslatedText))
-                    {
-                        return fullTranslatedText;
-                    }
+                    last = new InvalidOperationException("Dịch vụ dịch thuật trả về kết quả rỗng.");
                 }
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"[Lỗi Dịch Thuật]: {ex.Message}");
+                catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException)
+                {
+                    last = ex;
+                }
+
+                await Task.Delay(500 * attempt);
             }
 
-            return text; // Nếu lỗi mạng thì giữ nguyên
+            // Không còn lặng lẽ trả lại văn bản gốc: báo lỗi để giao diện hiển thị đúng.
+            throw new InvalidOperationException($"Không dịch được văn bản: {last?.Message}");
         }
     }
 }

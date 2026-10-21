@@ -4,14 +4,12 @@
         vi: 'Tiếng Việt', en: 'Tiếng Anh', ja: 'Tiếng Nhật', ko: 'Tiếng Hàn',
         zh: 'Tiếng Trung', fr: 'Tiếng Pháp', de: 'Tiếng Đức'
     };
-    const TTS_SOFT_LIMIT = 200;            // dịch vụ TTS hiện tại chỉ đọc ổn định ~200 ký tự mỗi lần
-    const STORE_PREFIX = 'sn.result.';
 
     const $ = (s) => document.querySelector(s);
     const esc = (s) => String(s ?? '').replace(/[&<>"']/g,
         (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
-    let slides = [];          // [{ id, kind: 'image'|'pdf'|'text', fileName, previewUrl, text }]
+    let slides = [];          // [{ id, kind: 'image'|'pdf'|'text', fileName, previewUrl, imageUrl, text }]
     let nextId = 1;
     let current = null;       // { project, sourceLanguage, targetLanguage, items: [...] }
 
@@ -54,17 +52,15 @@
             const pages = result?.pages ?? [];
             if (!pages.length) throw new Error('Backend không trả về trang nào từ file đã chọn.');
 
-            pages.forEach((page, index) => {
+            pages.forEach((page) => {
                 const isPdf = /pdf_icon/i.test(page.imageUrl ?? '');
-                const sourceFile = isPdf
-                    ? accepted.find((file) => file.name.toLowerCase().endsWith('.pdf'))
-                    : accepted[index];
-
                 slides.push({
                     id: nextId++,
                     kind: isPdf ? 'pdf' : 'image',
-                    fileName: sourceFile?.name ?? `Trang ${page.pageNumber}`,
-                    previewUrl: !isPdf && sourceFile ? URL.createObjectURL(sourceFile) : null,
+                    fileName: page.sourceFileName || `Trang ${page.pageNumber}`,
+                    // Ảnh đã được server lưu nên dùng luôn URL của server (bền hơn blob URL)
+                    previewUrl: isPdf ? null : page.imageUrl,
+                    imageUrl: isPdf ? '' : page.imageUrl,
                     text: (page.extractedText ?? '').trim()
                 });
             });
@@ -83,14 +79,14 @@
     }
 
     function addEmptySlide() {
-        slides.push({ id: nextId++, kind: 'text', fileName: '', previewUrl: null, text: '' });
+        slides.push({ id: nextId++, kind: 'text', fileName: '', previewUrl: null, imageUrl: '', text: '' });
         renderSlides();
         const areas = document.querySelectorAll('#slideList textarea');
         areas[areas.length - 1]?.focus();
     }
 
     function thumbHtml(s) {
-        if (s.kind === 'image') return `<img class="slide-thumb" src="${s.previewUrl}" alt="${esc(s.fileName)}" />`;
+        if (s.kind === 'image') return `<img class="slide-thumb" src="${esc(s.previewUrl)}" alt="${esc(s.fileName)}" />`;
         if (s.kind === 'pdf') return `<div class="slide-thumb-placeholder"><span class="fs-3">📕</span>${esc(s.fileName)}</div>`;
         return `<div class="slide-thumb-placeholder"><span class="fs-3">✍️</span>Nhập tay</div>`;
     }
@@ -117,14 +113,11 @@
         slides.forEach(updateCounter);
     }
 
+    // Không còn giới hạn độ dài: backend tự chia nhỏ văn bản khi dịch và đọc
     function updateCounter(s) {
         const el = document.querySelector(`.slide-card[data-id="${s.id}"] [data-counter]`);
         if (!el) return;
-        const n = s.text.length;
-        el.textContent = n > TTS_SOFT_LIMIT
-            ? `${n} ký tự – dài hơn ${TTS_SOFT_LIMIT}, giọng đọc có thể bị lỗi hoặc bị cắt`
-            : `${n}/${TTS_SOFT_LIMIT} ký tự`;
-        el.classList.toggle('over', n > TTS_SOFT_LIMIT);
+        el.textContent = `${s.text.length} ký tự`;
     }
 
     function setProgress(pct, text) {
@@ -157,6 +150,7 @@
             const items = slides.map((s, i) => ({
                 pageNumber: i + 1,
                 previewUrl: s.kind === 'image' ? s.previewUrl : null,
+                imageUrl: s.imageUrl,
                 kind: s.kind,
                 fileName: s.fileName,
                 originalText: s.text.trim(),
@@ -167,14 +161,13 @@
 
             current = { project, sourceLanguage, targetLanguage, items };
 
-            // Tạo lần lượt từng trang để không dồn dập dịch vụ TTS
+            // Tạo lần lượt từng trang để không dồn dập dịch vụ TTS. Mỗi trang được backend lưu vào MySQL.
             for (let i = 0; i < items.length; i++) {
                 setProgress(Math.round((i / items.length) * 100), `Đang dịch & tạo giọng đọc trang ${i + 1}/${items.length}…`);
                 await generateForItem(items[i]);
             }
             setProgress(100, 'Hoàn tất.');
 
-            persist();
             renderResult();
             showTab('#tab-result');
 
@@ -196,8 +189,9 @@
                 projectName: current.project.name,
                 pageNumber: item.pageNumber,
                 text: item.originalText,
+                imagePath: item.imageUrl,
                 sourceLanguage: current.sourceLanguage,
-                targetLanguage: current.targetLanguage
+                targetLanguage: current.targetLanguage || $('#targetLanguage').value
             });
             item.audioUrl = r.audioUrl;
             item.translatedText = r.translatedText ?? item.translatedText;
@@ -208,25 +202,9 @@
     }
 
     // ---------- Màn Kết quả & Trình phát ----------
-    function persist() {
-        if (!current) return;
-        try {
-            // Ảnh xem trước (blob URL) chỉ sống trong phiên này nên không lưu
-            const clean = { ...current, items: current.items.map((x) => ({ ...x, previewUrl: null })) };
-            localStorage.setItem(STORE_PREFIX + current.project.id, JSON.stringify(clean));
-        } catch { /* hết dung lượng hoặc bị chặn: bỏ qua */ }
-    }
-
-    function loadSaved(projectId) {
-        try {
-            const raw = localStorage.getItem(STORE_PREFIX + projectId);
-            return raw ? JSON.parse(raw) : null;
-        } catch { return null; }
-    }
-
     function resultCardHtml(it) {
         const thumb = it.previewUrl
-            ? `<img class="slide-thumb" src="${it.previewUrl}" alt="Trang ${it.pageNumber}" />`
+            ? `<img class="slide-thumb" src="${esc(it.previewUrl)}" alt="Trang ${it.pageNumber}" />`
             : `<div class="slide-thumb-placeholder"><span class="fs-3">${it.kind === 'pdf' ? '📕' : '📝'}</span>Trang ${it.pageNumber}</div>`;
 
         const player = it.audioUrl
@@ -251,7 +229,7 @@
                                 <div class="small text-muted">Bản dịch (${esc(current.targetLanguage)})</div>
                                 <div class="result-text">${it.translatedText
                                     ? esc(it.translatedText)
-                                    : '<span class="text-muted fst-italic">Chưa có bản dịch từ Backend – giọng đọc đang dùng văn bản gốc.</span>'}</div>
+                                    : '<span class="text-muted fst-italic">Chưa có bản dịch cho trang này.</span>'}</div>
                             </div>
                             ${player}
                         </div>
@@ -268,7 +246,7 @@
 
         $('#resultTitle').textContent = current.project.name;
         $('#resultMeta').textContent =
-            `${LANGS[current.sourceLanguage] ?? current.sourceLanguage} → ${LANGS[current.targetLanguage] ?? current.targetLanguage} · ${current.items.length} trang`;
+            `${LANGS[current.sourceLanguage] ?? current.sourceLanguage} → ${LANGS[current.targetLanguage] ?? (current.targetLanguage || '?')} · ${current.items.length} trang`;
         $('#resultList').innerHTML = current.items.map(resultCardHtml).join('');
     }
 
@@ -277,7 +255,6 @@
         const card = document.querySelector(`#resultList [data-page="${item.pageNumber}"]`);
         card?.querySelectorAll('button').forEach((b) => (b.disabled = true));
         await generateForItem(item);
-        persist();
         renderResult();
     }
 
@@ -313,6 +290,38 @@
         }
     }
 
+    // Mở dự án: đọc trực tiếp từ MySQL qua GET /api/projects/{id}/view (không còn dựa vào localStorage)
+    async function openProject(id) {
+        const view = await Api.getProjectView(id);
+        const items = (view.pages ?? []).map((p) => {
+            const hasImage = /^\/uploads\//i.test(p.imageUrl ?? '');
+            return {
+                pageNumber: p.pageNumber,
+                previewUrl: hasImage ? p.imageUrl : null,
+                imageUrl: hasImage ? p.imageUrl : '',
+                kind: hasImage ? 'image' : 'text',
+                fileName: '',
+                originalText: p.originalText ?? '',
+                translatedText: p.translatedText || null,
+                audioUrl: Api.toPlayableUrl(p.audioUrl),
+                error: p.audioUrl ? null : 'Chưa có audio.'
+            };
+        });
+
+        if (!items.length) {
+            return showAlert('#projectsAlert', 'Dự án này chưa có trang nào được dịch và lưu.', 'info');
+        }
+
+        current = {
+            project: { id: view.projectId, name: view.projectName || 'Dự án' },
+            sourceLanguage: view.sourceLanguage || 'en',
+            targetLanguage: view.language || '',
+            items
+        };
+        renderResult();
+        showTab('#tab-result');
+    }
+
     async function onProjectAction(ev) {
         const btn = ev.target.closest('button[data-action]');
         if (!btn) return;
@@ -320,19 +329,18 @@
         const id = row.dataset.id;
 
         if (btn.dataset.action === 'open') {
-            const saved = loadSaved(id);
-            if (!saved) {
-                return showAlert('#projectsAlert',
-                    'Dự án này chưa có kết quả được lưu trên trình duyệt này (Backend chưa có API trả danh sách slide/audio).', 'info');
+            btn.disabled = true;
+            try {
+                await openProject(id);
+            } catch (e) {
+                showAlert('#projectsAlert', e.message);
+            } finally {
+                btn.disabled = false;
             }
-            current = saved;
-            renderResult();
-            showTab('#tab-result');
         } else if (btn.dataset.action === 'delete') {
             if (!confirm(`Xóa dự án “${row.children[0].textContent}”? Hành động này không hoàn tác được.`)) return;
             try {
                 await Api.deleteProject(id);
-                try { localStorage.removeItem(STORE_PREFIX + id); } catch { /* bỏ qua */ }
                 if (current?.project.id === id) { current = null; renderResult(); }
                 loadProjects();
             } catch (e) {
@@ -366,8 +374,6 @@
             const btn = e.target.closest('button[data-action="remove"]');
             if (!btn) return;
             const id = Number(btn.closest('.slide-card').dataset.id);
-            const s = slides.find((x) => x.id === id);
-            if (s?.previewUrl) URL.revokeObjectURL(s.previewUrl);
             slides = slides.filter((x) => x.id !== id);
             renderSlides();
         });

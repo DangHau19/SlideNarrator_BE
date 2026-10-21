@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using UglyToad.PdfPig;
@@ -10,6 +10,9 @@ namespace SlideNarrator.BLL
         public int PageNumber { get; set; }
         public string ImageUrl { get; set; } = string.Empty;
         public string ExtractedText { get; set; } = string.Empty;
+
+        /// <summary>Tên file gốc chứa trang này (để giao diện hiển thị đúng khi tải nhiều file cùng lúc).</summary>
+        public string SourceFileName { get; set; } = string.Empty;
     }
 
     public class SlideProcessingService
@@ -33,12 +36,13 @@ namespace SlideNarrator.BLL
             {
                 foreach (var page in document.GetPages())
                 {
-                    var text = string.Join(" ", page.GetWords());
+                    var text = string.Join(" ", page.GetWords().Select(w => w.Text));
                     pages.Add(new ExtractedPageDto
                     {
                         PageNumber = page.Number,
                         ImageUrl = "/images/pdf_icon.png", // icon hoặc ảnh thumbnail
-                        ExtractedText = string.IsNullOrWhiteSpace(text) ? "" : text.Trim()
+                        ExtractedText = string.IsNullOrWhiteSpace(text) ? "" : text.Trim(),
+                        SourceFileName = fileName
                     });
                 }
             }
@@ -61,7 +65,8 @@ namespace SlideNarrator.BLL
             {
                 PageNumber = pageIndex,
                 ImageUrl = $"/uploads/{uniqueFileName}",
-                ExtractedText = "" // Với ảnh thì để trống để người dùng nhập/dán lời thuyết minh
+                ExtractedText = "", // Với ảnh thì để trống để người dùng nhập/dán lời thuyết minh
+                SourceFileName = originalFileName
             };
         }
     }
